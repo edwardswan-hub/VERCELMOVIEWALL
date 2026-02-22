@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/proxy/tmdb/:match*",
+      "destination": "https://api.themoviedb.org/3/:match*"
+    },
+    {
+      "source": "/proxy/supabase/:match*",
+      "destination": "https://hcwivnnrnwnkguytoroy.supabase.co/:match*"
+    }
+  ]
+}

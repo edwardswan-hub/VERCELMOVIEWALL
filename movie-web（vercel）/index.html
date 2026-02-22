@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Movie Wall Cloud · Glass Blur</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050505;
+      --fg: rgba(255, 255, 255, 0.95);
+
+      /* Refined Glass Variables */
+      --glass-bg: rgba(20, 22, 28, 0.45);
+      --glass-bg-hover: rgba(30, 33, 42, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-border-highlight: rgba(255, 255, 255, 0.2);
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+      --glass-blur: 24px;
+    }
+
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient Background Layer */
+    #background-container {
+      position: fixed;
+      inset: 0;
+      z-index: -3;
+      overflow: hidden;
+      background-color: #000;
+      pointer-events: none; /* ✅ never block input */
+    }
+    .background-image {
+      position: absolute;
+      inset: -15%;
+      width: 130%;
+      height: 130%;
+      background-size: cover;
+      background-position: center;
+      filter: blur(40px) brightness(0.4) saturate(1.3);
+      transform: scale(1.1);
+      animation: ambientPan 30s ease-in-out infinite alternate;
+      transition: opacity 1.5s ease-in-out;
+      pointer-events: none; /* ✅ never block input */
+    }
+    @keyframes ambientPan {
+      0% { transform: scale(1.1) translate(0, 0); }
+      100% { transform: scale(1.15) translate(-2%, -2%); }
+    }
+
+    /* Cinematic Vignette Overlay */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -2;
+      background:
+        linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.85) 100%),
+        radial-gradient(circle at 50% 0%, rgba(255,255,255,0.03) 0%, transparent 60%);
+    }
+
+    /* Premium Glass Container */
+    .crystal-glass {
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+      border: 1px solid var(--glass-border);
+      border-top: 1px solid var(--glass-border-highlight);
+      border-left: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: var(--glass-shadow);
+      position: relative;
+      isolation: isolate;
+      transform: translateZ(0); /* ✅ fix rare Chromium composition bugs */
+    }
+
+    /* Interactive Elements */
+    .glass-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      position: relative;
+      z-index: 20;
+    }
+    .glass-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--glass-border-highlight);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+    }
+    .glass-btn:active { transform: translateY(0); }
+
+    /* 🔥 Brute-force input visibility + focus reliability */
+    .glass-input {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      transition: all 0.2s ease;
+      outline: none;
+      color: rgba(255,255,255,0.95) !important;
+      caret-color: #fff;
+      -webkit-text-fill-color: rgba(255,255,255,0.95) !important;
+      position: relative;
+      z-index: 9999;
+      pointer-events: auto;
+      mix-blend-mode: normal;
+      transform: translateZ(0);
+    }
+    .glass-input:focus {
+      background: rgba(20, 20, 20, 0.55);
+      border-color: rgba(255, 255, 255, 0.35);
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+    }
+    .glass-input::placeholder { color: rgba(255, 255, 255, 0.4); }
+
+    /* ✅ Chrome 自动填充：避免“看不见字/黑字黑底” */
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      -webkit-text-fill-color: rgba(255,255,255,0.95) !important;
+      caret-color: #fff;
+      box-shadow: 0 0 0px 1000px rgba(0,0,0,0.35) inset !important;
+      transition: background-color 9999s ease-in-out 0s;
+    }
+
+    /* Password toggle button */
+    .pwd-toggle {
+      position: absolute;
+      right: 0.6rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 42px;
+      height: 42px;
+      border-radius: 9999px;
+      display: grid;
+      place-items: center;
+      z-index: 10000;
+      pointer-events: auto;
+    }
+
+    /* Tags & Pills */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 0.75rem;
+      backdrop-filter: blur(8px);
+    }
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      padding: 0 0.4rem;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      font-family: monospace;
+      font-size: 11px;
+      box-shadow: 0 2px 0 rgba(0,0,0,0.2);
+    }
+
+    /* Movie Cards */
+    #movie-wall { perspective: 1200px; }
+    .movie-card {
+      opacity: 0;
+      transform: translateY(20px) scale(0.98);
+      animation: cardPopIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .movie-card:hover {
+      transform: translateY(-8px) scale(1.03);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.15);
+      z-index: 10;
+    }
+
+    /* Gradient overlay for cards */
+    .card-overlay {
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, transparent 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .movie-card:hover .card-overlay { opacity: 1; }
+
+    .movie-info {
+      transform: translateY(10px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .movie-card:hover .movie-info {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* Tabs */
+    .tab-btn {
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    .tab-btn:hover { color: #fff; }
+    .tab-btn.active {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 0.5rem;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
+
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
+
+    @keyframes cardPopIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .modal-anim { animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+    /* Custom select styling */
+    select.glass-input {
+      appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      background-size: 1em;
+    }
+    select.glass-input option {
+      background: #1a1c23;
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body class="antialiased selection:bg-indigo-500/30 selection:text-white text-slate-200">
+  <div id="background-container"></div>
+
+  <div id="loginScreen" class="min-h-screen flex items-center justify-center px-4 relative z-50 transition-opacity duration-500" style="isolation:isolate;">
+    <div class="crystal-glass p-8 sm:p-10 rounded-[2rem] w-full max-w-md modal-anim relative z-[9999]">
+      <div class="flex flex-col items-center mb-8 text-center">
+        <div class="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-4 border border-white/20 shadow-inner">
+          <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path></svg>
+        </div>
+        <h2 class="text-3xl font-black text-white tracking-tight">Movie Wall</h2>
+        <p class="text-slate-400 mt-2 text-sm">Synchronize your cinematic universe</p>
+      </div>
+
+      <div class="space-y-4">
+        <div class="relative">
+          <input id="emailInput" type="email" placeholder="Email address" autocomplete="email" class="glass-input w-full py-3.5 px-4 rounded-xl" />
+        </div>
+        <div class="relative">
+          <input id="pwdInput" type="password" placeholder="Password" autocomplete="current-password" class="glass-input w-full py-3.5 pl-4 pr-14 rounded-xl" />
+          <button id="togglePwdBtn" type="button" class="pwd-toggle glass-btn" aria-label="Toggle password visibility" aria-pressed="false" title="Show/Hide">
+            <svg id="eyeIcon" class="w-5 h-5 text-white/90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </button>
+        </div>
+        <button id="loginBtn" class="glass-btn w-full py-3.5 mt-2 text-white font-bold rounded-xl text-lg flex justify-center items-center gap-2">
+          <span>Enter</span>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+        </button>
+      </div>
+
+      <div class="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400">
+        <span>Press <kbd class="kbd">Enter</kbd> to login</span>
+      </div>
+
+      <p id="loginError" class="text-pink-400 text-sm mt-4 text-center min-h-[20px] font-medium"></p>
+    </div>
+  </div>
+
+  <div id="appScreen" class="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10 hidden">
+    <header class="mb-10">
+      <div class="crystal-glass rounded-[2rem] p-5 sm:p-7">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div class="flex items-center gap-4">
+            <div class="hidden sm:flex w-12 h-12 rounded-xl bg-white/10 items-center justify-center border border-white/20">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path></svg>
+            </div>
+            <div>
+              <h1 class="text-3xl sm:text-4xl font-black text-white tracking-tight">Library.</h1>
+              <p class="text-sm text-slate-400 mt-1 font-medium tracking-wide">Cloud Synced & Realtime</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button id="refreshBtn" class="glass-btn px-5 py-2.5 rounded-xl text-sm font-medium text-white flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+              Sync
+            </button>
+            <button id="viewToggleBtn" class="glass-btn px-5 py-2.5 rounded-xl text-sm font-medium text-white" title="切换视图">View</button>
+            <button id="logoutBtn" class="glass-btn px-5 py-2.5 rounded-xl text-sm font-medium text-white text-opacity-80 hover:text-pink-400 border-pink-500/20 hover:border-pink-500/40">Exit</button>
+          </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div class="lg:col-span-7 relative group">
+            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-white transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            </div>
+            <input id="searchInput" type="search" placeholder="Search TMDB to add..." class="glass-input w-full py-3.5 pl-12 pr-16 rounded-xl text-white font-medium text-lg placeholder:text-slate-500" />
+            <div class="absolute right-3 top-0 bottom-0 flex items-center">
+              <span class="hidden sm:inline-flex kbd mr-2 opacity-50">⌘K</span>
+              <button id="searchBtn" class="glass-btn px-3 py-1.5 rounded-lg text-white font-medium text-sm">Go</button>
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 flex flex-col sm:flex-row gap-3">
+            <input id="wallFilterInput" type="search" placeholder="Filter current list..." class="glass-input flex-1 py-3.5 px-4 rounded-xl text-sm text-white" />
+            <select id="sortSelect" class="glass-input py-3.5 px-4 rounded-xl text-sm text-white font-medium sm:w-44 cursor-pointer">
+              <option value="recent">Recently Added</option>
+              <option value="title">Title A-Z</option>
+              <option value="year">Release Year</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-6 flex flex-col lg:flex-row gap-4 lg:items-end lg:justify-between border-t border-white/10 pt-5">
+          <div class="flex-1">
+            <div class="flex items-center justify-between gap-4 mb-2">
+              <p id="syncStepText" class="text-xs font-medium text-slate-300 uppercase tracking-wider">Ready</p>
+              <p id="syncPercentText" class="text-xs font-bold text-white">0%</p>
+            </div>
+            <div class="h-1.5 bg-black/40 rounded-full overflow-hidden backdrop-blur-sm border border-white/5">
+              <div id="syncProgressBar" class="h-full bg-gradient-to-r from-blue-400 to-indigo-500 w-0 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs lg:w-1/2 lg:justify-end">
+            <span id="countWatched" class="pill bg-indigo-500/20 border-indigo-500/30 text-indigo-100">Watched 0</span>
+            <span id="countWatching" class="pill bg-emerald-500/20 border-emerald-500/30 text-emerald-100">Watching 0</span>
+            <span id="countWant" class="pill bg-amber-500/20 border-amber-500/30 text-amber-100">Wishlist 0</span>
+            <span id="statusMsg" class="ml-2 text-pink-300 font-medium min-h-[16px]"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-8 flex items-center justify-between gap-4">
+        <div id="tabs" class="flex p-1.5 rounded-xl crystal-glass shadow-lg">
+          <button data-status="watched" class="tab-btn active px-6 py-2.5 rounded-lg text-sm font-bold text-slate-400">已看</button>
+          <button data-status="watching" class="tab-btn px-6 py-2.5 rounded-lg text-sm font-bold text-slate-400">在看</button>
+          <button data-status="wantToWatch" class="tab-btn px-6 py-2.5 rounded-lg text-sm font-bold text-slate-400">想看</button>
+        </div>
+
+        <div class="hidden md:flex items-center text-xs text-slate-500 font-medium">
+          <span id="realtimeText" class="flex items-center gap-1.5">
+             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+             Live
+          </span>
+          <span class="mx-3 opacity-30">|</span>
+          <span id="lastSyncText">Synced: --</span>
+        </div>
+      </div>
+    </header>
+
+    <div id="movie-wall" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 pb-20"></div>
+  </div>
+
+  <div id="searchModal" class="fixed inset-0 bg-black/60 backdrop-blur-md hidden items-center justify-center z-50 p-4 transition-opacity">
+    <div class="w-full max-w-4xl crystal-glass rounded-[2rem] p-6 relative max-h-[85vh] overflow-hidden flex flex-col modal-anim">
+      <button id="closeSearchModal" class="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10 border border-white/10">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+      <div class="flex items-center gap-3 mb-6 shrink-0">
+        <h2 class="text-2xl font-black text-white">TMDB Results</h2>
+        <span class="pill bg-blue-500/20 border-blue-500/30 text-blue-200">Click to add</span>
+      </div>
+      <div id="searchResults" class="space-y-4 overflow-y-auto pr-2 pb-4 flex-1 custom-scrollbar"></div>
+    </div>
+  </div>
+
+  <div id="detailModal" class="fixed inset-0 bg-black/70 backdrop-blur-xl hidden items-center justify-center z-50 p-4 sm:p-6 transition-all">
+    <div class="w-full max-w-6xl crystal-glass rounded-[2.5rem] p-6 sm:p-8 relative flex flex-col lg:flex-row gap-8 max-h-[90vh] overflow-y-auto custom-scrollbar modal-anim shadow-2xl border-white/20">
+      <button id="closeDetailModal" class="absolute top-6 right-6 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors z-10 border border-white/10 backdrop-blur-md">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+
+      <div class="w-full lg:w-1/3 xl:w-1/4 shrink-0 flex flex-col">
+        <div class="relative rounded-2xl overflow-hidden shadow-[0_20px_40px_rgba(0,0,0,0.6)] border border-white/10 group aspect-[2/3]">
+          <img id="modalPoster" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" src="" alt="poster" />
+          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-6">
+            <button id="openTmdbBtn" class="glass-btn px-5 py-2 rounded-full text-sm font-bold text-white backdrop-blur-md">View on TMDB</button>
+          </div>
+        </div>
+
+        <div class="mt-5 flex flex-wrap gap-2 justify-center">
+          <span id="modalBadgeStatus" class="pill bg-white/10 border-white/20 text-white font-bold">--</span>
+          <span id="modalBadgeRating" class="pill bg-amber-500/20 border-amber-500/40 text-amber-300 font-bold">⭐ --</span>
+        </div>
+
+        <p id="modalRecordedAt" class="mt-4 text-center text-xs text-slate-400 font-medium"></p>
+
+        <div class="mt-6 flex flex-col gap-3">
+          <div id="statusMoveButtons" class="grid grid-cols-1 gap-2"></div>
+          <div class="h-px bg-white/10 my-1"></div>
+          <button id="deleteBtn" class="glass-btn w-full py-2.5 rounded-xl text-sm font-bold text-pink-400 border-pink-500/30 hover:bg-pink-500/10 hover:border-pink-500/50">Remove from Cloud</button>
+        </div>
+      </div>
+
+      <div class="w-full lg:w-2/3 xl:w-3/4 flex flex-col min-h-[50vh]">
+        <div class="pr-12">
+          <h2 id="modalTitle" class="text-4xl sm:text-5xl font-black text-white tracking-tight leading-tight flex items-center gap-3">
+            <span id="modalTitleText"></span>
+            <button id="copyTitleBtn" class="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white" title="Copy Title">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            </button>
+          </h2>
+          <p id="modalYear" class="text-xl text-indigo-300 font-bold mt-2"></p>
+          <p id="modalTagline" class="text-lg text-slate-300 mt-3 font-serif italic opacity-90 border-l-2 border-indigo-400 pl-3"></p>
+        </div>
+
+        <div class="mt-8 flex-1 flex flex-col">
+          <div id="detailTabs" class="flex gap-2 border-b border-white/10 pb-4 mb-4 overflow-x-auto custom-scrollbar">
+            <button data-tab="overview" class="tab-btn active px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:bg-white/5">Overview</button>
+            <button data-tab="cast" class="tab-btn px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:bg-white/5">Cast</button>
+            <button data-tab="media" class="tab-btn px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:bg-white/5">Media</button>
+            <button data-tab="recs" class="tab-btn px-5 py-2 rounded-lg text-sm font-bold text-slate-400 hover:bg-white/5">Similar</button>
+          </div>
+
+          <div id="tabOverview" class="flex-1 animate-[modalFadeIn_0.3s_ease]">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-black/20 p-5 rounded-2xl border border-white/5">
+              <p><strong class="text-slate-400 block mb-1 uppercase text-xs tracking-wider">Director</strong> <span id="modalDirector" class="text-white font-medium text-base"></span></p>
+              <p><strong class="text-slate-400 block mb-1 uppercase text-xs tracking-wider">Top Cast</strong> <span id="modalActors" class="text-white font-medium"></span></p>
+            </div>
+            <div class="mt-6">
+              <h3 class="text-white font-bold mb-2">Synopsis</h3>
+              <p id="modalPlot" class="text-slate-300 leading-relaxed text-[15px] font-normal"></p>
+            </div>
+          </div>
+
+          <div id="tabCast" class="hidden flex-1 animate-[modalFadeIn_0.3s_ease]">
+            <div id="castGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+            <p id="castEmpty" class="text-sm text-slate-400 italic hidden bg-black/20 p-4 rounded-xl">No cast info available. Resync the item to fetch latest data.</p>
+          </div>
+
+          <div id="tabMedia" class="hidden flex-1 animate-[modalFadeIn_0.3s_ease]">
+            <div class="flex gap-2 mb-4 bg-black/20 p-1.5 rounded-xl inline-flex">
+              <button id="mediaKindStills" class="px-4 py-1.5 rounded-lg text-sm font-bold text-white bg-white/10 shadow">Backdrops</button>
+              <button id="mediaKindPosters" class="px-4 py-1.5 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition-colors">Posters</button>
+            </div>
+            <div id="mediaGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+            <p id="mediaEmpty" class="text-sm text-slate-400 italic hidden bg-black/20 p-4 rounded-xl">No imagery found.</p>
+          </div>
+
+          <div id="tabRecs" class="hidden flex-1 animate-[modalFadeIn_0.3s_ease]">
+            <div id="recsGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"></div>
+            <p id="recsEmpty" class="text-sm text-slate-400 italic hidden bg-black/20 p-4 rounded-xl">No recommendations right now.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="personModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden items-center justify-center z-[60] p-4">
+    <div class="w-full max-w-3xl crystal-glass rounded-[2rem] p-6 sm:p-8 relative modal-anim border-white/20">
+      <button id="closePersonModal" class="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+      <div class="flex gap-6 flex-col sm:flex-row">
+        <img id="personAvatar" class="w-32 h-48 sm:w-40 sm:h-60 rounded-2xl object-cover border border-white/10 shadow-2xl shrink-0" src="" alt="person">
+        <div class="flex-1 min-w-0">
+          <h3 id="personName" class="text-3xl font-black text-white"></h3>
+          <p id="personMeta" class="text-sm text-indigo-300 mt-1 font-medium"></p>
+          <div class="mt-4 bg-black/20 p-4 rounded-xl border border-white/5">
+            <p id="personBio" class="text-sm text-slate-300 leading-relaxed max-h-40 overflow-y-auto custom-scrollbar pr-2"></p>
+          </div>
+          <div class="mt-5">
+            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Known For</h4>
+            <div id="personKnownFor" class="flex gap-3 overflow-x-auto pb-2 custom-scrollbar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="imageViewer" class="fixed inset-0 bg-black/95 backdrop-blur-2xl hidden items-center justify-center z-[70] p-4 transition-opacity">
+    <button id="closeImageViewer" class="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors border border-white/10">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+    </button>
+    <img id="viewerImg" src="" alt="preview" class="max-w-[95vw] max-h-[95vh] rounded-xl shadow-2xl object-contain animate-[modalFadeIn_0.3s_ease]" />
+  </div>
+
+  <script>
+    // ===== CONFIG (Vercel 优雅反代版) =====
+    const SUPABASE_URL = '/proxy/supabase';
+    const TMDB_BASE = '/proxy/tmdb';
+    
+    const SUPABASE_KEY = 'sb_publishable_WegqH3gkROTrammN1uvMqg_y_bgNUi0';
+    const TMDB_KEY = '30f8f5d19b6e17b84205bdba71474cd4';
+
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const STATUS_META = {
+      watched: { label: '已看' },
+      watching: { label: '在看' },
+      wantToWatch: { label: '想看' }
+    };
+
+    const state = {
+      localMovies: { watched: [], watching: [], wantToWatch: [] },
+      currentStatus: 'watched',
+      wallKeyword: '',
+      sortMode: 'recent',
+      viewDense: false,
+      currentOpenMovie: null,
+      currentMediaKind: 'stills',
+      isSyncing: false,
+      lastSyncAt: 0,
+      realtimeChannel: null,
+      realtimeConnected: false,
+      pollTimer: null,
+      reloadDebounce: null,
+      currentUser: null,
+      tmdbOpenUrl: '',
+      backgroundUrls: []
+    };
+
+    const dom = {
+      login: document.getElementById('loginScreen'),
+      app: document.getElementById('appScreen'),
+      wall: document.getElementById('movie-wall'),
+      status: document.getElementById('statusMsg'),
+      tabs: document.getElementById('tabs'),
+      bg: document.getElementById('background-container'),
+
+      loginBtn: document.getElementById('loginBtn'),
+      logoutBtn: document.getElementById('logoutBtn'),
+      emailInput: document.getElementById('emailInput'),
+      pwdInput: document.getElementById('pwdInput'),
+      togglePwdBtn: document.getElementById('togglePwdBtn'),
+      eyeIcon: document.getElementById('eyeIcon'),
+      loginError: document.getElementById('loginError'),
+
+      searchInput: document.getElementById('searchInput'),
+      searchBtn: document.getElementById('searchBtn'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      viewToggleBtn: document.getElementById('viewToggleBtn'),
+      wallFilterInput: document.getElementById('wallFilterInput'),
+      sortSelect: document.getElementById('sortSelect'),
+
+      syncStepText: document.getElementById('syncStepText'),
+      syncPercentText: document.getElementById('syncPercentText'),
+      syncProgressBar: document.getElementById('syncProgressBar'),
+      countWatched: document.getElementById('countWatched'),
+      countWatching: document.getElementById('countWatching'),
+      countWant: document.getElementById('countWant'),
+      lastSyncText: document.getElementById('lastSyncText'),
+      realtimeText: document.getElementById('realtimeText'),
+
+      searchModal: document.getElementById('searchModal'),
+      closeSearchModal: document.getElementById('closeSearchModal'),
+      searchResults: document.getElementById('searchResults'),
+
+      detailModal: document.getElementById('detailModal'),
+      closeDetailModal: document.getElementById('closeDetailModal'),
+      modalPoster: document.getElementById('modalPoster'),
+      modalTitle: document.getElementById('modalTitleText'),
+      modalYear: document.getElementById('modalYear'),
+      modalDirector: document.getElementById('modalDirector'),
+      modalActors: document.getElementById('modalActors'),
+      modalPlot: document.getElementById('modalPlot'),
+      modalTagline: document.getElementById('modalTagline'),
+      modalBadgeStatus: document.getElementById('modalBadgeStatus'),
+      modalBadgeRating: document.getElementById('modalBadgeRating'),
+      modalRecordedAt: document.getElementById('modalRecordedAt'),
+      statusMoveButtons: document.getElementById('statusMoveButtons'),
+      deleteBtn: document.getElementById('deleteBtn'),
+      openTmdbBtn: document.getElementById('openTmdbBtn'),
+      copyTitleBtn: document.getElementById('copyTitleBtn'),
+
+      detailTabs: document.getElementById('detailTabs'),
+      tabOverview: document.getElementById('tabOverview'),
+      tabCast: document.getElementById('tabCast'),
+      tabMedia: document.getElementById('tabMedia'),
+      tabRecs: document.getElementById('tabRecs'),
+      castGrid: document.getElementById('castGrid'),
+      castEmpty: document.getElementById('castEmpty'),
+      mediaGrid: document.getElementById('mediaGrid'),
+      mediaEmpty: document.getElementById('mediaEmpty'),
+      mediaKindStills: document.getElementById('mediaKindStills'),
+      mediaKindPosters: document.getElementById('mediaKindPosters'),
+      recsGrid: document.getElementById('recsGrid'),
+      recsEmpty: document.getElementById('recsEmpty'),
+
+      personModal: document.getElementById('personModal'),
+      closePersonModal: document.getElementById('closePersonModal'),
+      personAvatar: document.getElementById('personAvatar'),
+      personName: document.getElementById('personName'),
+      personMeta: document.getElementById('personMeta'),
+      personBio: document.getElementById('personBio'),
+      personKnownFor: document.getElementById('personKnownFor'),
+
+      imageViewer: document.getElementById('imageViewer'),
+      closeImageViewer: document.getElementById('closeImageViewer'),
+      viewerImg: document.getElementById('viewerImg')
+    };
+
+    // ===== Helpers =====
+    function showMsg(msg, ms = 3200) {
+      dom.status.textContent = msg || '';
+      if (ms) {
+        window.setTimeout(() => {
+          if (dom.status.textContent === msg) dom.status.textContent = '';
+        }, ms);
+      }
+    }
+
+    function setSyncProgress(percent, text) {
+      const p = Math.max(0, Math.min(100, Math.floor(percent || 0)));
+      dom.syncPercentText.textContent = `${p}%`;
+      dom.syncProgressBar.style.width = `${p}%`;
+      if (text) dom.syncStepText.textContent = text;
+    }
+
+    function canonicalStatus(raw) {
+      const s = String(raw || '').trim().toLowerCase();
+      if (s === 'watched') return 'watched';
+      if (s === 'watching') return 'watching';
+      if (['wanttowatch','want_to_watch','want-to-watch','want','wishlist'].includes(s)) return 'wantToWatch';
+      return 'wantToWatch';
+    }
+
+    function safeJsonParse(raw, fallback = {}) {
+      if (raw == null) return fallback;
+      if (typeof raw === 'object') return raw;
+      try { return JSON.parse(raw); } catch (_) { return fallback; }
+    }
+
+    function parseMaybeArray(raw, fallback = []) {
+      if (raw == null) return fallback;
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string') {
+        try {
+          const v = JSON.parse(raw);
+          return Array.isArray(v) ? v : fallback;
+        } catch (_) { return fallback; }
+      }
+      return fallback;
+    }
+
+    function imgUrl(p, size = 'w500') {
+      if (!p) return '';
+      const s = String(p);
+      if (s.startsWith('http')) return s;
+      return `https://image.tmdb.org/t/p/${size}${s.startsWith('/') ? s : '/' + s}`;
+    }
+
+    function formatDateTime(ms) {
+      if (!ms) return '--';
+      return new Date(ms).toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function extractRecordedAt(row, movieData, extras) {
+      return Math.max(
+        Number(extras?.timestamp) || 0,
+        Number(movieData?.timestamp) || 0,
+        Date.parse(row?.updated_at) || 0,
+        Date.parse(row?.created_at) || 0,
+        0
+      );
+    }
+
+    function getMediaArrays(movie) {
+      const ex = movie?.extras || {};
+      const postersRaw = ex.posters ?? ex.poster ?? [];
+      const stillsRaw = ex.stills ?? ex.backdrops ?? [];
+      const posters = parseMaybeArray(postersRaw, []).map((p) => imgUrl(p, 'w500')).filter(Boolean);
+      const stills = parseMaybeArray(stillsRaw, []).map((p) => imgUrl(p, 'w780')).filter(Boolean);
+
+      if (movie?.poster) {
+        const main = imgUrl(movie.poster, 'w500');
+        if (main && !posters.includes(main)) posters.unshift(main);
+      }
+      return { posters, stills };
+    }
+
+    // ===== UI Updating =====
+    function updateSyncStats() {
+      dom.countWatched.textContent = `Watched ${state.localMovies.watched.length}`;
+      dom.countWatching.textContent = `Watching ${state.localMovies.watching.length}`;
+      dom.countWant.textContent = `Wishlist ${state.localMovies.wantToWatch.length}`;
+      dom.lastSyncText.textContent = `Synced: ${formatDateTime(state.lastSyncAt)}`;
+
+      const dot = state.realtimeConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500';
+      dom.realtimeText.innerHTML = `<span class="w-2 h-2 rounded-full ${dot}"></span> ${state.realtimeConnected ? 'Live' : 'Polling'}`;
+    }
+
+    async function fetchTrendingBackgrounds() {
+      try {
+        const res = await fetch(`${TMDB_BASE}/trending/movie/day?api_key=${TMDB_KEY}&language=en-US`);
+        const data = await res.json();
+        const urls = (data.results || []).filter(m => m.backdrop_path).map(m => imgUrl(m.backdrop_path, 'w1280'));
+        if (urls.length > 0) {
+          state.backgroundUrls = urls;
+          setRandomBackground();
+        }
+      } catch (e) {
+        console.warn("Couldn't fetch trending for backgrounds", e);
+      }
+    }
+
+    function setRandomBackground(forceUrl = null) {
+      let bg = forceUrl;
+      if (!bg) {
+        const all = Object.values(state.localMovies).flat();
+        let pool = [...state.backgroundUrls];
+        if (all.length > 0) {
+          all.forEach(m => {
+            const ex = safeJsonParse(m.extras, {});
+            const stills = safeJsonParse(ex.stills, []);
+            if (stills.length) pool.push(imgUrl(stills[0], 'w1280'));
+          });
+        }
+        if (pool.length > 0) bg = pool[Math.floor(Math.random() * pool.length)];
+      }
+
+      if (bg) {
+        dom.bg.innerHTML = `<div class="background-image" style="background-image:url('${bg}')"></div>`;
+      }
+    }
+
+    function renderWall() {
+      dom.wall.className = state.viewDense
+        ? 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4 pb-20'
+        : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 pb-20';
+
+      dom.wall.innerHTML = '';
+      const src = state.localMovies[state.currentStatus] || [];
+      const key = state.wallKeyword.trim().toLowerCase();
+
+      let list = key
+        ? src.filter((m) => String(m.title).toLowerCase().includes(key) || String(m.director).toLowerCase().includes(key))
+        : [...src];
+
+      if (state.sortMode === 'title') list.sort((a, b) => String(a.title).localeCompare(String(b.title), 'zh-CN'));
+      else if (state.sortMode === 'year') list.sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+      else list.sort((a, b) => (b.recordedAtMs || 0) - (a.recordedAtMs || 0));
+
+      if (!list.length) {
+        dom.wall.innerHTML = `<div class="col-span-full py-20 text-center"><p class="text-slate-400 text-lg">Empty here. Go add some masterpieces.</p></div>`;
+        return;
+      }
+
+      list.forEach((m, i) => {
+        const card = document.createElement('div');
+        card.className = 'movie-card relative aspect-[2/3] rounded-2xl overflow-hidden cursor-pointer bg-black/40 group';
+        card.style.animationDelay = `${Math.min(i * 30, 400)}ms`;
+        card.onclick = () => openDetailModal(m);
+
+        const poster = m.poster ? imgUrl(m.poster, 'w500') : 'https://placehold.co/500x750/111/444?text=No+Poster';
+        card.innerHTML = `
+          <img src="${poster}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="poster" loading="lazy" />
+          <div class="absolute inset-0 card-overlay flex flex-col justify-end p-4">
+            <div class="movie-info">
+              <h3 class="font-bold text-white text-base leading-tight mb-1 drop-shadow-md line-clamp-2">${m.title}</h3>
+              <p class="text-xs text-indigo-200 font-medium">${m.year || 'TBA'} · ${STATUS_META[m.status]?.label}</p>
+            </div>
+          </div>
+        `;
+        dom.wall.appendChild(card);
+      });
+    }
+
+    // ===== Core Logic =====
+    async function loadMovies() {
+      if (state.isSyncing) return;
+      state.isSyncing = true;
+      setSyncProgress(10, 'Fetching universe...');
+
+      try {
+        const { data, error } = await db.from('movies').select('*');
+        if (error) throw error;
+
+        setSyncProgress(50, 'Organizing matter...');
+        const dedup = new Map();
+        (data || []).forEach(row => {
+          const mData = row.movie_data || {};
+          const ex = safeJsonParse(mData.extras, {});
+          const m = {
+            id: String(mData.id || `${row.status}-${mData.tmdbId}`),
+            tmdbId: mData.tmdbId,
+            type: mData.type || 'movie',
+            title: mData.title || 'Untitled',
+            year: mData.year,
+            director: mData.director,
+            actors: mData.actors,
+            plot: mData.plot,
+            poster: mData.poster,
+            status: canonicalStatus(row.status),
+            extras: ex,
+            recordedAtMs: extractRecordedAt(row, mData, ex)
+          };
+          const prev = dedup.get(m.id);
+          if (!prev || m.recordedAtMs >= prev.recordedAtMs) dedup.set(m.id, m);
+        });
+
+        setSyncProgress(80, 'Rendering reality...');
+        state.localMovies = { watched: [], watching: [], wantToWatch: [] };
+        dedup.forEach(m => { if (state.localMovies[m.status]) state.localMovies[m.status].push(m); });
+
+        state.lastSyncAt = Date.now();
+        updateSyncStats();
+        renderWall();
+        if (!state.currentOpenMovie) setRandomBackground();
+
+        setSyncProgress(100, 'Synced');
+        setTimeout(() => setSyncProgress(0, 'Ready'), 2000);
+      } catch (err) {
+        showMsg(`Sync Error: ${err.message}`, 5000);
+        setSyncProgress(0, 'Failed');
+      } finally {
+        state.isSyncing = false;
+      }
+    }
+
+    // ===== Modals & Renders =====
+    function openImageViewer(url) {
+      if (!url) return;
+      dom.viewerImg.src = url;
+      dom.imageViewer.classList.remove('hidden');
+      dom.imageViewer.classList.add('flex');
+    }
+
+    function setMediaKind(kind) {
+      state.currentMediaKind = kind;
+      const isStills = kind === 'stills';
+      dom.mediaKindStills.classList.toggle('bg-white/10', isStills);
+      dom.mediaKindStills.classList.toggle('text-white', isStills);
+      dom.mediaKindStills.classList.toggle('text-slate-400', !isStills);
+
+      dom.mediaKindPosters.classList.toggle('bg-white/10', !isStills);
+      dom.mediaKindPosters.classList.toggle('text-white', !isStills);
+      dom.mediaKindPosters.classList.toggle('text-slate-400', isStills);
+    }
+
+    function renderMedia(movie) {
+      dom.mediaGrid.innerHTML = '';
+      const { posters, stills } = getMediaArrays(movie);
+      const list = state.currentMediaKind === 'stills' ? stills : posters;
+
+      if (!list.length) {
+        dom.mediaEmpty.classList.remove('hidden');
+        return;
+      }
+      dom.mediaEmpty.classList.add('hidden');
+
+      list.slice(0, 24).forEach((u) => {
+        const div = document.createElement('div');
+        div.className = state.currentMediaKind === 'stills' ? 'relative aspect-video rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition border border-white/10' : 'relative aspect-[2/3] rounded-xl overflow-hidden cursor-pointer hover:scale-105 transition border border-white/10';
+        div.innerHTML = `<img src="${u}" loading="lazy" alt="media" class="w-full h-full object-cover">`;
+        div.onclick = () => openImageViewer(u.replace('/w500/','/original/').replace('/w780/','/original/'));
+        dom.mediaGrid.appendChild(div);
+      });
+    }
+
+    function renderRecs(movie) {
+      dom.recsGrid.innerHTML = '';
+      const recs = parseMaybeArray(movie.extras?.recommendations, []);
+      if (!recs.length) {
+        dom.recsEmpty.classList.remove('hidden');
+        return;
+      }
+      dom.recsEmpty.classList.add('hidden');
+
+      recs.slice(0, 10).forEach((r) => {
+        const poster = r.poster_path ? imgUrl(r.poster_path, 'w500') : 'https://placehold.co/400x600/222/555?text=No+Poster';
+        const title = r.title || r.name || 'Untitled';
+        const year = (r.release_date || r.first_air_date || '').slice(0,4);
+        const type = r.media_type || r.type || (movie.type === 'tv' ? 'tv' : 'movie');
+
+        const card = document.createElement('div');
+        card.className = 'bg-black/20 rounded-xl overflow-hidden border border-white/5 cursor-pointer hover:scale-105 transition group';
+        card.innerHTML = `
+          <div class="aspect-[2/3] overflow-hidden relative">
+            <img src="${poster}" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" loading="lazy" alt="poster" />
+          </div>
+          <div class="p-2">
+            <p class="text-xs font-bold text-white truncate">${title}</p>
+            <p class="text-[10px] text-slate-400 truncate mb-2">${year || '--'} · Add</p>
+            <div class="flex gap-1">
+              <button class="glass-btn flex-1 py-1 rounded-md text-[10px] text-white" data-add="watched">已看</button>
+              <button class="glass-btn flex-1 py-1 rounded-md text-[10px] text-white opacity-80" data-add="wantToWatch">想看</button>
+            </div>
+          </div>
+        `;
+        card.querySelectorAll('button').forEach((b) => {
+          b.onclick = (e) => { e.stopPropagation(); addMovie(r.id, type, b.dataset.add); };
+        });
+        dom.recsGrid.appendChild(card);
+      });
+    }
+
+    function openDetailModal(movie) {
+      state.currentOpenMovie = movie;
+      const ex = movie.extras || {};
+
+      dom.modalPoster.src = movie.poster ? imgUrl(movie.poster, 'w500') : '';
+      dom.modalTitle.textContent = movie.title;
+      dom.modalYear.textContent = movie.year || 'TBA';
+      dom.modalTagline.textContent = ex.tagline ? `“${ex.tagline}”` : '';
+
+      dom.modalDirector.textContent = movie.director || '--';
+      dom.modalActors.textContent = movie.actors || '--';
+      dom.modalPlot.textContent = movie.plot || 'No synopsis.';
+
+      dom.modalBadgeStatus.textContent = STATUS_META[movie.status]?.label;
+      dom.modalBadgeRating.textContent = `⭐ ${Number(ex.rating||0).toFixed(1)}`;
+      dom.modalRecordedAt.textContent = `Saved: ${formatDateTime(movie.recordedAtMs)}`;
+
+      const stills = parseMaybeArray(ex.stills, []);
+      if (stills.length) setRandomBackground(imgUrl(stills[0], 'w1280'));
+      else setRandomBackground(movie.poster ? imgUrl(movie.poster, 'w1280') : null);
+
+      dom.statusMoveButtons.innerHTML = '';
+      ['watched','watching','wantToWatch'].forEach(s => {
+        if (s === movie.status) return;
+        const btn = document.createElement('button');
+        btn.className = 'glass-btn w-full py-2.5 rounded-xl text-sm font-bold text-white opacity-90';
+        btn.textContent = `Move to ${STATUS_META[s].label}`;
+        btn.onclick = () => moveMovieToStatus(s);
+        dom.statusMoveButtons.appendChild(btn);
+      });
+
+      state.tmdbOpenUrl = movie.tmdbId ? `https://www.themoviedb.org/${movie.type}/${movie.tmdbId}?language=zh-CN` : '';
+
+      dom.castGrid.innerHTML = '';
+      const cast = parseMaybeArray(ex.cast, []).slice(0, 12);
+      if(!cast.length) {
+        dom.castEmpty.classList.remove('hidden');
+      } else {
+        dom.castEmpty.classList.add('hidden');
+        cast.forEach(c => {
+          const div = document.createElement('div');
+          div.className = 'bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col items-center text-center cursor-pointer hover:bg-white/10 transition';
+          const img = c.profile_path ? imgUrl(c.profile_path, 'w185') : 'https://placehold.co/100x150/222/555?text=No+Pic';
+          div.innerHTML = `<img src="${img}" class="w-16 h-16 rounded-full object-cover mb-2 shadow-lg"><p class="text-xs text-white font-bold w-full truncate">${c.name}</p><p class="text-[10px] text-slate-400 w-full truncate">${c.character}</p>`;
+          if (c.id) div.onclick = () => openPersonModal(c.id);
+          dom.castGrid.appendChild(div);
+        });
+      }
+
+      // Render Media & Recs
+      setMediaKind('stills');
+      renderMedia(movie);
+      renderRecs(movie);
+
+      dom.detailTabs.querySelectorAll('button').forEach(b => {
+        b.onclick = () => {
+          dom.detailTabs.querySelectorAll('button').forEach(btn => btn.classList.remove('active', 'bg-white/15'));
+          b.classList.add('active', 'bg-white/15');
+          ['overview','cast','media','recs'].forEach(t => {
+            const el = document.getElementById(`tab${t.charAt(0).toUpperCase()+t.slice(1)}`);
+            if (el) el.classList.toggle('hidden', b.dataset.tab !== t);
+          });
+        };
+      });
+      dom.detailTabs.querySelector('button[data-tab="overview"]').click();
+
+      dom.detailModal.classList.remove('hidden');
+      dom.detailModal.classList.add('flex');
+    }
+
+    async function moveMovieToStatus(targetStatus) {
+      const movie = state.currentOpenMovie;
+      if (!movie) return;
+      const newId = `${targetStatus}-${movie.tmdbId}`;
+      const payload = { ...movie, id: newId, status: targetStatus };
+
+      const { error } = await db.from('movies').upsert({ id: newId, status: targetStatus, movie_data: payload, user_id: state.currentUser.id });
+      if (!error && movie.id !== newId) await db.from('movies').delete().eq('id', movie.id);
+
+      dom.detailModal.classList.add('hidden');
+      loadMovies();
+    }
+
+    async function deleteCurrentMovie() {
+      if (!state.currentOpenMovie) return;
+      await db.from('movies').delete().eq('id', state.currentOpenMovie.id);
+      dom.detailModal.classList.add('hidden');
+      loadMovies();
+    }
+
+    // ===== TMDB API (Search, Add, Person) =====
+    async function upsertMovieRow(row) {
+      const userId = state.currentUser?.id;
+      if (userId) {
+        return db.from('movies').upsert({ ...row, user_id: userId });
+      }
+      return db.from('movies').upsert(row);
+    }
+
+    async function addMovie(tmdbId, type, status) {
+      showMsg('Fetching TMDB info...');
+      try {
+        const url = `${TMDB_BASE}/${type}/${tmdbId}?api_key=${TMDB_KEY}&language=zh-CN&append_to_response=credits,images,recommendations&include_image_language=en,null`;
+        const res = await fetch(url);
+        const d = await res.json();
+
+        const title = d.title || d.name || 'Untitled';
+        const year = (d.release_date || d.first_air_date || '').slice(0, 4);
+        const director = (d.credits?.crew || []).find((c) => c.job === 'Director')?.name || '';
+        const actors = (d.credits?.cast || []).slice(0, 6).map((a) => a.name).join(', ');
+        const poster = d.poster_path || '';
+        const rating = Number(d.vote_average || 0) || 0;
+        const tagline = d.tagline || '';
+        const timestamp = Date.now();
+
+        const castLite = (d.credits?.cast || []).slice(0, 18).map((a) => ({
+          id: a.id, name: a.name || '', character: a.character || '', profile_path: a.profile_path || null
+        }));
+
+        const posters = Array.from(new Set([d.poster_path, ...(d.images?.posters || []).slice(0, 18).map((p) => p.file_path)])).filter(Boolean).slice(0, 18);
+        const stills = Array.from(new Set((d.images?.backdrops || []).slice(0, 24).map((b) => b.file_path))).filter(Boolean).slice(0, 24);
+
+        const recs = (d.recommendations?.results || []).slice(0, 12).map((r) => ({
+          id: r.id, title: r.title || r.name || '', poster_path: r.poster_path || '',
+          release_date: r.release_date || r.first_air_date || '', media_type: type
+        }));
+
+        const movieData = {
+          id: `${status}-${tmdbId}`, tmdbId, type, title, year, director, actors, plot: d.overview || '', poster,
+          extras: {
+            posters: JSON.stringify(posters), stills: JSON.stringify(stills), rating,
+            cast: JSON.stringify(castLite), recommendations: JSON.stringify(recs), tagline, timestamp
+          }
+        };
+
+        const { error } = await upsertMovieRow({ id: `${status}-${tmdbId}`, status, movie_data: movieData });
+        if (error) throw error;
+
+        dom.searchModal.classList.add('hidden');
+        loadMovies();
+        showMsg('Added successfully! 🎉');
+      } catch (err) {
+        showMsg(`Add failed: ${err.message}`, 5000);
+      }
+    }
+
+    async function searchTmdb() {
+      const q = dom.searchInput.value.trim();
+      if (!q) return;
+      showMsg('Searching TMDB...');
+
+      try {
+        const res = await fetch(`${TMDB_BASE}/search/multi?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&language=zh-CN`);
+        const data = await res.json();
+        const list = (data?.results || []).filter((i) => i.media_type === 'movie' || i.media_type === 'tv');
+
+        dom.searchResults.innerHTML = '';
+        if (!list.length) {
+          dom.searchResults.innerHTML = '<p class="text-slate-400 italic">No matches found.</p>';
+          dom.searchModal.classList.remove('hidden');
+          dom.searchModal.classList.add('flex');
+          return;
+        }
+
+        list.slice(0, 18).forEach((item) => {
+          const poster = item.poster_path ? imgUrl(item.poster_path, 'w500') : 'https://placehold.co/100x150/222/555?text=No+Image';
+          const title = item.title || item.name || 'Untitled';
+          const year = (item.release_date || item.first_air_date || '').slice(0, 4);
+
+          const div = document.createElement('div');
+          div.className = 'bg-black/20 rounded-2xl p-4 border border-white/10 flex gap-4 hover:bg-white/5 transition';
+          div.innerHTML = `
+            <img src="${poster}" class="w-16 h-24 object-cover rounded-xl shadow-lg border border-white/5 shrink-0" alt="poster" />
+            <div class="flex-1 min-w-0">
+              <h4 class="text-white font-bold truncate text-lg">${title} <span class="text-sm text-indigo-300 ml-1">${year ? `(${year})` : ''}</span></h4>
+              <p class="text-xs text-slate-400 line-clamp-2 mt-1 mb-3">${item.overview || 'No overview.'}</p>
+              <div class="flex gap-2">
+                <button class="glass-btn px-4 py-1.5 rounded-lg text-xs font-bold text-white" data-add="watched">已看</button>
+                <button class="glass-btn px-4 py-1.5 rounded-lg text-xs font-bold text-white opacity-80" data-add="watching">在看</button>
+                <button class="glass-btn px-4 py-1.5 rounded-lg text-xs font-bold text-white opacity-80" data-add="wantToWatch">想看</button>
+              </div>
+            </div>
+          `;
+          div.querySelectorAll('button').forEach((b) => {
+            b.onclick = () => addMovie(item.id, item.media_type, b.dataset.add);
+          });
+          dom.searchResults.appendChild(div);
+        });
+
+        dom.searchModal.classList.remove('hidden');
+        dom.searchModal.classList.add('flex');
+        showMsg('');
+      } catch (err) {
+        showMsg(`Search failed: ${err.message}`, 5000);
+      }
+    }
+
+    async function openPersonModal(personId) {
+      if (!personId) return;
+      try {
+        showMsg('Loading actor info...', 1500);
+        const [infoRes, creditsRes] = await Promise.all([
+          fetch(`${TMDB_BASE}/person/${personId}?api_key=${TMDB_KEY}&language=zh-CN`),
+          fetch(`${TMDB_BASE}/person/${personId}/combined_credits?api_key=${TMDB_KEY}&language=zh-CN`)
+        ]);
+        const info = await infoRes.json();
+        const credits = await creditsRes.json();
+
+        dom.personName.textContent = info.name || 'Unknown';
+        dom.personMeta.textContent = [
+          info.known_for_department ? `Dept: ${info.known_for_department}` : '',
+          info.birthday ? `Born: ${info.birthday}` : '',
+          info.place_of_birth ? `Place: ${info.place_of_birth}` : ''
+        ].filter(Boolean).join(' · ') || '—';
+
+        const avatar = info.profile_path ? imgUrl(info.profile_path, 'w342') : '';
+        dom.personAvatar.src = avatar || 'https://placehold.co/240x320/222/555?text=No+Photo';
+        dom.personBio.textContent = info.biography || 'No biography available (TMDB might lack CN translation).';
+
+        const known = (credits.cast || []).slice(0, 12);
+        dom.personKnownFor.innerHTML = '';
+        known.forEach((k) => {
+          const p = k.poster_path ? imgUrl(k.poster_path, 'w185') : '';
+          const title = k.title || k.name || '';
+          const chip = document.createElement('div');
+          chip.className = 'w-24 flex-shrink-0 cursor-pointer group';
+          chip.innerHTML = `
+            <div class="bg-black/30 rounded-xl overflow-hidden border border-white/5 group-hover:border-white/20 transition">
+              <div class="aspect-[2/3] bg-black/50">
+                ${p ? `<img src="${p}" class="w-full h-full object-cover" loading="lazy" alt="poster"/>` : ''}
+              </div>
+              <div class="p-2">
+                <p class="text-[10px] text-white font-bold truncate">${title || '—'}</p>
+              </div>
+            </div>
+          `;
+          dom.personKnownFor.appendChild(chip);
+        });
+
+        dom.personModal.classList.remove('hidden');
+        dom.personModal.classList.add('flex');
+      } catch (e) {
+        showMsg(`Load failed: ${e.message}`, 4200);
+      }
+    }
+
+    // Bootstrap & Auth
+    function setAuthedUi(session) {
+      state.currentUser = session?.user;
+      if (state.currentUser) {
+        dom.login.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => {
+          dom.login.classList.add('hidden');
+          dom.app.classList.remove('hidden');
+        }, 500);
+
+        state.realtimeChannel = db.channel('movies_realtime')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'movies' }, () => loadMovies())
+          .subscribe(s => { state.realtimeConnected = s === 'SUBSCRIBED'; updateSyncStats(); });
+
+        loadMovies();
+      } else {
+        dom.app.classList.add('hidden');
+        dom.login.classList.remove('hidden', 'opacity-0', 'pointer-events-none');
+        fetchTrendingBackgrounds();
+      }
+    }
+
+    async function bootstrap() {
+      // ✅ Password visibility toggle (also verifies input works)
+      dom.togglePwdBtn.onclick = () => {
+        const isPwd = dom.pwdInput.type === 'password';
+        dom.pwdInput.type = isPwd ? 'text' : 'password';
+        dom.togglePwdBtn.setAttribute('aria-pressed', String(isPwd));
+        dom.pwdInput.focus();
+      };
+
+      // Basic Events
+      dom.loginBtn.onclick = async () => {
+        dom.loginBtn.innerHTML = '<span class="animate-pulse">Authenticating...</span>';
+        const { error } = await db.auth.signInWithPassword({ email: dom.emailInput.value, password: dom.pwdInput.value });
+        if (error) {
+          dom.loginError.textContent = error.message;
+          dom.loginBtn.innerHTML = 'Enter';
+        }
+      };
+
+      dom.pwdInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') dom.loginBtn.click();
+      });
+
+      dom.logoutBtn.onclick = () => db.auth.signOut();
+      dom.refreshBtn.onclick = () => loadMovies();
+
+      // 🆕 Bind Search
+      dom.searchBtn.onclick = searchTmdb;
+      dom.searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchTmdb();
+      });
+
+      // 🆕 Bind Copy Title & Open TMDB
+      dom.copyTitleBtn.onclick = async () => {
+        const t = dom.modalTitle.textContent || '';
+        try {
+          await navigator.clipboard.writeText(t);
+          showMsg('Title copied! ✅', 1500);
+        } catch (_) {
+          showMsg('Copy failed (Browser permissions)', 2000);
+        }
+      };
+      dom.openTmdbBtn.onclick = () => {
+        if (state.tmdbOpenUrl) window.open(state.tmdbOpenUrl, '_blank', 'noopener,noreferrer');
+      };
+
+      // 🆕 Bind Media Tabs
+      dom.mediaKindStills.onclick = () => { setMediaKind('stills'); if(state.currentOpenMovie) renderMedia(state.currentOpenMovie); };
+      dom.mediaKindPosters.onclick = () => { setMediaKind('posters'); if(state.currentOpenMovie) renderMedia(state.currentOpenMovie); };
+
+      dom.viewToggleBtn.onclick = () => { state.viewDense = !state.viewDense; renderWall(); };
+      dom.sortSelect.onchange = e => { state.sortMode = e.target.value; renderWall(); };
+      dom.wallFilterInput.oninput = e => { state.wallKeyword = e.target.value; renderWall(); };
+
+      dom.tabs.onclick = e => {
+        if (!e.target.dataset.status) return;
+        dom.tabs.querySelectorAll('button').forEach(b => { b.classList.remove('active','bg-white/15','text-white'); b.classList.add('text-slate-400'); });
+        e.target.classList.add('active','bg-white/15','text-white');
+        e.target.classList.remove('text-slate-400');
+        state.currentStatus = e.target.dataset.status;
+        renderWall();
+      };
+
+      dom.closeDetailModal.onclick = () => {
+        dom.detailModal.classList.add('hidden');
+        state.currentOpenMovie = null;
+        setRandomBackground();
+      };
+      dom.deleteBtn.onclick = deleteCurrentMovie;
+
+      dom.closeSearchModal.onclick = () => dom.searchModal.classList.add('hidden');
+
+      // 🆕 Close Image/Person Modals
+      dom.closePersonModal.onclick = () => dom.personModal.classList.add('hidden');
+      dom.closeImageViewer.onclick = () => {
+        dom.imageViewer.classList.add('hidden');
+        dom.viewerImg.src = '';
+      };
+      
+      // 🆕 Global shortcut & modal clicks
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          dom.searchInput.focus();
+        }
+        if (e.key === 'Escape') {
+          if (!dom.imageViewer.classList.contains('hidden')) dom.closeImageViewer.onclick();
+          else if (!dom.personModal.classList.contains('hidden')) dom.closePersonModal.onclick();
+          else if (!dom.detailModal.classList.contains('hidden')) dom.closeDetailModal.onclick();
+          else if (!dom.searchModal.classList.contains('hidden')) dom.closeSearchModal.onclick();
+        }
+      });
+
+      // Init Session
+      db.auth.onAuthStateChange((_, s) => setAuthedUi(s));
+      const { data } = await db.auth.getSession();
+      setAuthedUi(data?.session);
+
+      // Extra: make sure inputs are focusable even if some weird overlay exists
+      requestAnimationFrame(() => {
+        dom.emailInput.style.pointerEvents = 'auto';
+        dom.pwdInput.style.pointerEvents = 'auto';
+      });
+    }
+
+    bootstrap();
+  </script>
+</body>
+</html>
